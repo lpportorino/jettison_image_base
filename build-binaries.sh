@@ -10,6 +10,7 @@ BUILD_DIR="${SCRIPT_DIR}/bin"
 
 # Go build flags for maximum performance and minimal size
 GO_BUILD_FLAGS=(
+    -buildvcs=false
     -trimpath
     -ldflags="-s -w -extldflags=-static"
     -tags=netgo

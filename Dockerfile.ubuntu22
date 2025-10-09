@@ -1,0 +1,36 @@
+# Jettison Base Image - Ubuntu 22.04 (JetPack 6.2 compatible)
+# Runtime-only image using pre-built binaries
+# Build binaries first: ./build-binaries.sh
+
+FROM ubuntu:22.04
+
+# Build arguments for architecture detection
+ARG TARGETARCH
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install minimal runtime dependencies only
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        jq \
+        redis-tools \
+        bash && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built binaries for this architecture
+COPY bin/${TARGETARCH}/wrapp /usr/local/bin/wrapp
+COPY bin/${TARGETARCH}/jettison_health /usr/local/bin/jettison_health
+
+# Create archer user and group
+RUN groupadd -g 1000 archer && \
+    useradd -u 1000 -g archer -m -s /bin/bash archer
+
+# Switch to archer user
+USER archer
+WORKDIR /home/archer
+
+# Set default shell
+CMD ["/bin/bash"]

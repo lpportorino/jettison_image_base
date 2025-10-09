@@ -1,0 +1,21 @@
+# Jettison Base Image - Minimal Scratch (Performance Optimized)
+# FROM scratch - absolute minimal image with just static binaries
+# Build binaries first: ./build-binaries.sh
+
+FROM scratch
+
+# Build arguments for architecture detection
+ARG TARGETARCH
+
+# Copy SSL certificates (required for HTTPS connections)
+COPY --from=alpine:latest /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy pre-built static binaries for this architecture
+COPY bin/${TARGETARCH}/wrapp /usr/local/bin/wrapp
+COPY bin/${TARGETARCH}/jettison_health /usr/local/bin/jettison_health
+
+# Set PATH environment variable
+ENV PATH=/usr/local/bin
+
+# Default entrypoint (no shell available in scratch)
+ENTRYPOINT ["/usr/local/bin/wrapp"]

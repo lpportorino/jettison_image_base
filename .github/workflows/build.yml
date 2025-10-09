@@ -1,4 +1,4 @@
-name: Build Jettison Base Image
+name: Build Jettison Base Images
 
 on:
   push:
@@ -9,21 +9,60 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: jettison-base-ubuntu22
+  IMAGE_PREFIX: jettison-base
 
 jobs:
-  build:
-    name: Build Multi-arch Image
+  build-binaries:
+    name: Cross-compile Go Binaries
     runs-on: ubuntu-22.04
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.6'
+
+      - name: Cross-compile binaries
+        run: ./build-binaries.sh
+
+      - name: Upload binaries as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: bin/
+          retention-days: 1
+
+  build-images:
+    name: Build ${{ matrix.variant }} Image
+    needs: build-binaries
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [ubuntu22, scratch]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: bin/
+
+      - name: Set executable permissions
+        run: chmod +x bin/*/*
 
       - name: Free disk space
         run: |
@@ -42,11 +81,6 @@ jobs:
           echo "=== Disk space after cleanup ==="
           df -h
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -61,76 +95,74 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_PREFIX }}-${{ matrix.variant }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
+            type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile.${{ matrix.variant }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }},ignore-error=true
 
       - name: Build test image for AMD64
+        if: matrix.variant == 'ubuntu22'
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile.${{ matrix.variant }}
           platforms: linux/amd64
           push: false
           load: true
-          tags: test-image:amd64
-          cache-from: type=gha
+          tags: test-image:${{ matrix.variant }}
+          cache-from: type=gha,scope=${{ matrix.variant }}
 
-      - name: Test AMD64 image
+      - name: Test Ubuntu image
+        if: matrix.variant == 'ubuntu22'
         run: |
-          IMAGE="test-image:amd64"
+          IMAGE="test-image:ubuntu22"
 
-          echo "=== Testing AMD64 image ==="
-          docker run --rm "$IMAGE" bash -c 'echo "Container started successfully"'
+          echo "=== Testing Ubuntu22 image ==="
+          docker run --rm "$IMAGE" bash -c 'echo "✓ Container started"'
 
           echo "=== Verifying archer user ==="
-          docker run --rm "$IMAGE" id
-          docker run --rm "$IMAGE" whoami | grep -q archer
+          docker run --rm "$IMAGE" whoami | grep -q archer && echo "✓ archer user"
 
           echo "=== Checking tools ==="
-          docker run --rm "$IMAGE" wrapp 2>&1 | head -n 3 || true
-          docker run --rm "$IMAGE" jettison_health 2>&1 | head -n 3 || true
-
-          echo "=== Verifying wrapp is executable ==="
-          docker run --rm "$IMAGE" sh -c 'command -v wrapp'
-
-          echo "=== Verifying jettison_health is executable ==="
-          docker run --rm "$IMAGE" sh -c 'command -v jettison_health'
+          docker run --rm "$IMAGE" sh -c 'command -v wrapp' && echo "✓ wrapp"
+          docker run --rm "$IMAGE" sh -c 'command -v jettison_health' && echo "✓ jettison_health"
 
           echo "=== Checking Ubuntu version ==="
-          docker run --rm "$IMAGE" cat /etc/os-release | grep "22.04"
+          docker run --rm "$IMAGE" cat /etc/os-release | grep "22.04" && echo "✓ Ubuntu 22.04"
 
-          echo "✓ All tests passed for AMD64"
+          echo "✓ All tests passed"
 
   summary:
     name: Build Summary
-    needs: build
+    needs: build-images
     runs-on: ubuntu-22.04
     if: always()
 
     steps:
       - name: Check build status
         run: |
-          if [ "${{ needs.build.result }}" = "success" ]; then
-            echo "✓ Multi-arch build completed successfully"
-            echo "Images pushed for: linux/amd64, linux/arm64"
+          if [ "${{ needs.build-images.result }}" = "success" ]; then
+            echo "✓ All images built successfully"
+            echo ""
+            echo "Images:"
+            echo "  - ghcr.io/${{ github.repository_owner }}/jettison-base-ubuntu22:latest (amd64, arm64)"
+            echo "  - ghcr.io/${{ github.repository_owner }}/jettison-base-scratch:latest (amd64, arm64)"
           else
             echo "✗ Build failed"
             exit 1

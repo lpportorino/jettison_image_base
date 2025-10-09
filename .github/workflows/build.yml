@@ -19,10 +19,46 @@ jobs:
       contents: read
 
     steps:
+      - name: Setup SSH keys for private submodules
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # Add deploy key for jettison_health
+          echo "${{ secrets.PULL_HEALTH }}" > ~/.ssh/jettison_health
+          chmod 600 ~/.ssh/jettison_health
+
+          # Add deploy key for jettison_wrapp
+          echo "${{ secrets.PULL_WRAPP }}" > ~/.ssh/jettison_wrapp
+          chmod 600 ~/.ssh/jettison_wrapp
+
+          # Configure SSH to use the appropriate key for each repo
+          cat >> ~/.ssh/config <<EOF
+          Host github.com-health
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/jettison_health
+            IdentitiesOnly yes
+
+          Host github.com-wrapp
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/jettison_wrapp
+            IdentitiesOnly yes
+          EOF
+
+          chmod 600 ~/.ssh/config
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Update submodule URLs to use SSH
+        run: |
+          git config --file=.gitmodules submodule.jettison_health.url git@github.com-health:lpportorino/jettison_health.git
+          git config --file=.gitmodules submodule.jettison_wrapp.url git@github.com-wrapp:lpportorino/jettison_wrapp.git
+          git submodule sync
+          git submodule update --init --recursive
 
       - name: Set up Go
         uses: actions/setup-go@v5

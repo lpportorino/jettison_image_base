@@ -146,14 +146,16 @@ docker run --rm -u $(id -u):$(id -g) ghcr.io/yourusername/jettison-base-ubuntu22
 
 The repository includes a GitHub Actions workflow that:
 
-1. Builds images for both AMD64 and ARM64 architectures on native runners
-2. Runs tests to verify:
+1. Builds images for both AMD64 and ARM64 architectures using buildx on AMD64 runner
+2. Uses QEMU emulation for ARM64 builds (acceptable for small Go apps)
+3. Runs tests on AMD64 image to verify:
    - Container starts successfully
    - archer user is active
    - Tools are on PATH and executable
    - Ubuntu 22.04 is installed
-3. Pushes architecture-specific tags
-4. Creates multi-arch manifests
+4. Automatically creates and pushes multi-arch manifest
+
+**Note**: ARM64 builds use QEMU emulation since GitHub Actions doesn't provide ARM64 runners for private repositories. Build time for ARM64 is slightly longer but acceptable for these lightweight Go tools.
 
 ### Available Tags
 

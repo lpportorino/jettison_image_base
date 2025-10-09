@@ -183,23 +183,3 @@ jobs:
           docker run --rm "$IMAGE" cat /etc/os-release | grep "22.04" && echo "✓ Ubuntu 22.04"
 
           echo "✓ All tests passed"
-
-  summary:
-    name: Build Summary
-    needs: build-images
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Check build status
-        run: |
-          if [ "${{ needs.build-images.result }}" = "success" ]; then
-            echo "✓ All images built successfully"
-            echo ""
-            echo "Images:"
-            echo "  - ghcr.io/${{ github.repository_owner }}/jettison-base-ubuntu22:latest (amd64, arm64)"
-            echo "  - ghcr.io/${{ github.repository_owner }}/jettison-base-scratch:latest (amd64, arm64)"
-          else
-            echo "✗ Build failed"
-            exit 1
-          fi

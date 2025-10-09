@@ -89,9 +89,12 @@ for arch in amd64 arm64; do
     for tool in wrapp jettison_health; do
         if [ -f "${BUILD_DIR}/${arch}/${tool}" ]; then
             size=$(du -h "${BUILD_DIR}/${arch}/${tool}" | cut -f1)
-            file_info=$(file "${BUILD_DIR}/${arch}/${tool}")
             echo "  ✓ ${tool}: ${size}"
-            echo "    ${file_info}"
+            # Show file info if command is available
+            if command -v file > /dev/null 2>&1; then
+                file_info=$(file "${BUILD_DIR}/${arch}/${tool}")
+                echo "    ${file_info}"
+            fi
         else
             echo "  ✗ ${tool}: NOT FOUND"
         fi

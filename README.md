@@ -81,7 +81,6 @@ docker run --rm \
 
 ### Prerequisites
 
-- Go 1.23.6 or later
 - Docker with BuildKit support
 - Git with submodules
 
@@ -99,10 +98,14 @@ The build is a two-step process optimized for performance:
 #### Step 1: Cross-compile Binaries
 
 ```bash
+# Using the official Go Docker image for latest compiler optimizations
+docker run --rm -v "$PWD:/workspace" -w /workspace golang:latest ./build-binaries.sh
+
+# Or directly on host if Go is installed
 ./build-binaries.sh
 ```
 
-This cross-compiles both tools for AMD64 and ARM64:
+This cross-compiles both tools for AMD64 and ARM64 using the latest stable Go compiler:
 - Disables CGO for pure static binaries
 - Uses architecture-specific optimizations (ARM64: v8.2,crypto,lse)
 - Strips binaries for minimal size
@@ -185,7 +188,8 @@ This creates runtime-only containers by copying pre-built binaries.
 The workflow builds all 4 images efficiently:
 
 1. **Cross-compile binaries** (single job, ~1-2 min)
-   - Uses Go 1.23.6 on ubuntu-22.04 runner
+   - Uses official `golang:latest` Docker image on ubuntu-latest runner
+   - Ensures latest Go compiler with best optimizations
    - Builds AMD64 and ARM64 binaries in parallel
    - Uploads as artifact
 

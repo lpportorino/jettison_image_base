@@ -1,0 +1,181 @@
+name: Build Jettison Base Image
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: jettison-base-ubuntu22
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} Image
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Free disk space
+        run: |
+          echo "=== Disk space before cleanup ==="
+          df -h
+
+          echo "=== Cleaning up Docker ==="
+          docker system prune -af --volumes
+
+          echo "=== Removing unnecessary files ==="
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+          echo "=== Disk space after cleanup ==="
+          df -h
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          load: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:test-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }},ignore-error=true
+          build-args: |
+            TARGETARCH=${{ matrix.arch }}
+            TARGETOS=linux
+
+      - name: Test image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:test-${{ matrix.arch }}"
+
+          echo "=== Testing image ==="
+          docker run --rm "$IMAGE" bash -c 'echo "Container started successfully"'
+
+          echo "=== Verifying archer user ==="
+          docker run --rm "$IMAGE" id
+          docker run --rm "$IMAGE" whoami | grep -q archer
+
+          echo "=== Checking tools ==="
+          docker run --rm "$IMAGE" wrapp 2>&1 | head -n 3 || true
+          docker run --rm "$IMAGE" jettison_health 2>&1 | head -n 3 || true
+
+          echo "=== Verifying wrapp is executable ==="
+          docker run --rm "$IMAGE" sh -c 'command -v wrapp'
+
+          echo "=== Verifying jettison_health is executable ==="
+          docker run --rm "$IMAGE" sh -c 'command -v jettison_health'
+
+          echo "=== Checking Ubuntu version ==="
+          docker run --rm "$IMAGE" cat /etc/os-release | grep "22.04"
+
+          echo "✓ All tests passed for ${{ matrix.arch }}"
+
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        run: |
+          IMAGE_BASE="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+
+          docker tag "${IMAGE_BASE}:test-${{ matrix.arch }}" "${IMAGE_BASE}:latest-${{ matrix.arch }}"
+          docker push "${IMAGE_BASE}:latest-${{ matrix.arch }}"
+          docker push "${IMAGE_BASE}:${{ github.sha }}-${{ matrix.arch }}"
+
+          # Push branch-specific tags
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            docker tag "${IMAGE_BASE}:test-${{ matrix.arch }}" "${IMAGE_BASE}:${{ github.ref_name }}-${{ matrix.arch }}"
+            docker push "${IMAGE_BASE}:${{ github.ref_name }}-${{ matrix.arch }}"
+          fi
+
+  create-manifest:
+    name: Create Multi-arch Manifest
+    needs: build
+    runs-on: ubuntu-22.04
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          IMAGE_BASE="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+
+          # Create manifest for latest tag (main branch only)
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            docker manifest create \
+              "${IMAGE_BASE}:latest" \
+              "${IMAGE_BASE}:latest-amd64" \
+              "${IMAGE_BASE}:latest-arm64"
+            docker manifest push "${IMAGE_BASE}:latest"
+          fi
+
+          # Create manifest for commit SHA
+          docker manifest create \
+            "${IMAGE_BASE}:${{ github.sha }}" \
+            "${IMAGE_BASE}:${{ github.sha }}-amd64" \
+            "${IMAGE_BASE}:${{ github.sha }}-arm64"
+          docker manifest push "${IMAGE_BASE}:${{ github.sha }}"
+
+          # Create manifest for branch
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            docker manifest create \
+              "${IMAGE_BASE}:${{ github.ref_name }}" \
+              "${IMAGE_BASE}:${{ github.ref_name }}-amd64" \
+              "${IMAGE_BASE}:${{ github.ref_name }}-arm64"
+            docker manifest push "${IMAGE_BASE}:${{ github.ref_name }}"
+          fi

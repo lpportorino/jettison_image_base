@@ -1,0 +1,18 @@
+# Build artifacts
+*.log
+build/
+dist/
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

@@ -21,44 +21,38 @@ echo "=== Building Jettison Tools ==="
 echo "Output directory: ${BUILD_DIR}"
 echo ""
 
-# Create build directory
-mkdir -p "${BUILD_DIR}"/{amd64,arm64}
+# Create build directory (ARM64 only for Jetson AGX Orin)
+mkdir -p "${BUILD_DIR}/arm64"
 
-# Function to build for a specific architecture
+# Function to build for ARM64 architecture
 build_tool() {
     local tool_name=$1
     local tool_path=$2
-    local arch=$3
-    local goarm64=$4
 
-    echo "→ Building ${tool_name} for ${arch}..."
+    echo "→ Building ${tool_name} for ARM64..."
 
     pushd "${tool_path}" > /dev/null
 
-    if [ "${arch}" = "arm64" ]; then
-        # Nvidia Orin AGX Cortex-A78AE optimizations
-        CGO_ENABLED=0 \
-        GOOS=linux \
-        GOARCH=arm64 \
-        GOARM64=v8.2,crypto,lse \
-        go build "${GO_BUILD_FLAGS[@]}" -o "${BUILD_DIR}/${arch}/${tool_name}" .
-    else
-        # AMD64 build
-        CGO_ENABLED=0 \
-        GOOS=linux \
-        GOARCH=amd64 \
-        go build "${GO_BUILD_FLAGS[@]}" -o "${BUILD_DIR}/${arch}/${tool_name}" .
-    fi
+    # Nvidia Orin AGX Cortex-A78AE optimizations
+    # - GOARCH=arm64: ARM64 architecture
+    # - GOARM64=v8.2: ARMv8.2-A (Cortex-A78AE)
+    # - crypto: Hardware-accelerated AES/SHA
+    # - lse: Large System Extensions (atomic operations)
+    CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=arm64 \
+    GOARM64=v8.2,crypto,lse \
+    go build "${GO_BUILD_FLAGS[@]}" -o "${BUILD_DIR}/arm64/${tool_name}" .
 
-    # Strip binaries (may fail for non-native arch, that's ok)
-    strip "${BUILD_DIR}/${arch}/${tool_name}" 2>/dev/null || true
+    # Strip binaries (may fail for cross-compile, that's ok)
+    strip "${BUILD_DIR}/arm64/${tool_name}" 2>/dev/null || true
 
     # Set executable permissions
-    chmod 755 "${BUILD_DIR}/${arch}/${tool_name}"
+    chmod 755 "${BUILD_DIR}/arm64/${tool_name}"
 
     # Show size
-    local size=$(du -h "${BUILD_DIR}/${arch}/${tool_name}" | cut -f1)
-    echo "  ✓ Built ${tool_name} (${arch}): ${size}"
+    local size=$(du -h "${BUILD_DIR}/arm64/${tool_name}" | cut -f1)
+    echo "  ✓ Built ${tool_name} (arm64): ${size}"
 
     popd > /dev/null
 }
@@ -70,42 +64,42 @@ if [ ! -f "jettison_wrapp/go.mod" ] || [ ! -f "jettison_health/go.mod" ]; then
     exit 1
 fi
 
-# Build wrapp for both architectures
+# Build wrapp for ARM64 (Jetson AGX Orin)
 echo "Building wrapp..."
-build_tool "wrapp" "${SCRIPT_DIR}/jettison_wrapp" "amd64"
-build_tool "wrapp" "${SCRIPT_DIR}/jettison_wrapp" "arm64"
+build_tool "wrapp" "${SCRIPT_DIR}/jettison_wrapp"
 echo ""
 
-# Build jettison_health for both architectures
+# Build jettison_health for ARM64 (Jetson AGX Orin)
 echo "Building jettison_health..."
-build_tool "jettison_health" "${SCRIPT_DIR}/jettison_health" "amd64"
-build_tool "jettison_health" "${SCRIPT_DIR}/jettison_health" "arm64"
+build_tool "jettison_health" "${SCRIPT_DIR}/jettison_health"
 echo ""
 
 # Verify binaries
 echo "=== Verification ==="
-for arch in amd64 arm64; do
-    echo "→ ${arch}:"
-    for tool in wrapp jettison_health; do
-        if [ -f "${BUILD_DIR}/${arch}/${tool}" ]; then
-            size=$(du -h "${BUILD_DIR}/${arch}/${tool}" | cut -f1)
-            echo "  ✓ ${tool}: ${size}"
-            # Show file info if command is available
-            if command -v file > /dev/null 2>&1; then
-                file_info=$(file "${BUILD_DIR}/${arch}/${tool}")
-                echo "    ${file_info}"
-            fi
-        else
-            echo "  ✗ ${tool}: NOT FOUND"
+echo "→ ARM64 (Jetson AGX Orin target):"
+for tool in wrapp jettison_health; do
+    if [ -f "${BUILD_DIR}/arm64/${tool}" ]; then
+        size=$(du -h "${BUILD_DIR}/arm64/${tool}" | cut -f1)
+        echo "  ✓ ${tool}: ${size}"
+        # Show file info if command is available
+        if command -v file > /dev/null 2>&1; then
+            file_info=$(file "${BUILD_DIR}/arm64/${tool}")
+            echo "    ${file_info}"
         fi
-    done
-    echo ""
+    else
+        echo "  ✗ ${tool}: NOT FOUND"
+    fi
 done
+echo ""
 
 echo "=== Build Complete ==="
-echo "Binaries available in: ${BUILD_DIR}"
+echo "ARM64 binaries available in: ${BUILD_DIR}/arm64"
 echo ""
-echo "Next steps:"
-echo "  1. Build Ubuntu 22.04 images: ./build-images.sh ubuntu22"
-echo "  2. Build scratch images: ./build-images.sh scratch"
-echo "  3. Build all images: ./build-images.sh all"
+echo "Optimizations applied:"
+echo "  • GOARM64=v8.2 (ARMv8.2-A for Cortex-A78AE)"
+echo "  • crypto: Hardware-accelerated AES/SHA"
+echo "  • lse: Large System Extensions (atomic operations)"
+echo "  • Static linking (CGO_ENABLED=0)"
+echo "  • Stripped symbols (-s -w)"
+echo ""
+echo "Next step: Run build_base_images.sh to create container images"

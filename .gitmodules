@@ -1,6 +1,0 @@
-[submodule "jettison_wrapp"]
-	path = jettison_wrapp
-	url = ../jettison_wrapp
-[submodule "jettison_health"]
-	path = jettison_health
-	url = ../jettison_health

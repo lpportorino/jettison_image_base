@@ -1,11 +1,55 @@
 # Jettison Base Image - Ubuntu 22.04 (JetPack 6.2 compatible)
-# Runtime-only image using pre-built binaries
-# Build binaries first: ./build-binaries.sh
+# Multi-stage build: Build binaries from source, then create runtime image
 
-FROM ubuntu:22.04
+# ============================================================================
+# Stage 1: Build binaries
+# ============================================================================
+FROM golang:latest AS builder
 
-# Build arguments for architecture detection
+# Build arguments for optimization
 ARG TARGETARCH
+ARG GOARM64
+
+# Set working directory
+WORKDIR /build
+
+# Copy source code for both tools
+COPY jettison_wrapp/ ./jettison_wrapp/
+COPY jettison_health/ ./jettison_health/
+
+# Build wrapp
+WORKDIR /build/jettison_wrapp
+RUN CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=${TARGETARCH} \
+    GOARM64=${GOARM64} \
+    go build \
+    -trimpath \
+    -ldflags="-s -w -extldflags=-static" \
+    -tags=netgo \
+    -o /wrapp \
+    .
+
+# Build jettison_health
+WORKDIR /build/jettison_health
+RUN CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=${TARGETARCH} \
+    GOARM64=${GOARM64} \
+    go build \
+    -trimpath \
+    -ldflags="-s -w -extldflags=-static" \
+    -tags=netgo \
+    -o /jettison_health \
+    .
+
+# Strip binaries for minimal size
+RUN strip /wrapp /jettison_health
+
+# ============================================================================
+# Stage 2: Runtime image
+# ============================================================================
+FROM ubuntu:22.04
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -22,9 +66,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy pre-built binaries for this architecture
-COPY bin/${TARGETARCH}/wrapp /usr/local/bin/wrapp
-COPY bin/${TARGETARCH}/jettison_health /usr/local/bin/jettison_health
+# Copy built binaries from builder stage
+COPY --from=builder /wrapp /usr/local/bin/wrapp
+COPY --from=builder /jettison_health /usr/local/bin/jettison_health
 
 # Create archer user and group
 RUN groupadd -g 1000 archer && \

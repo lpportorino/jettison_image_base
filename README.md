@@ -1,169 +1,127 @@
 # Jettison Base Images
 
-Base container image Dockerfiles for the Jettison monitoring system, built for NVIDIA Jetson AGX Orin (ARM64).
+Optimized multi-architecture container images for the Jettison monitoring system, built natively on GitHub Actions for AMD64 and ARM64 (Cortex-A78AE).
 
 ## Overview
 
-This repository contains **Dockerfiles only** - actual building happens during bootstrap Stage 13.
-
-The Jettison bootstrap process:
-1. Cross-compiles Go binaries (`wrapp`, `jettison_health`) for ARM64 with Cortex-A78AE optimizations
-2. Builds container images using these Dockerfiles and the compiled binaries
-3. Pushes images to the local registry (`localhost:5000`)
+This repository provides Dockerfiles and CI/CD for building container images with `wrapp` and `jettison_health` binaries. Images are built automatically on every push to main using:
+- **AMD64**: Native build on `ubuntu-latest` runners
+- **ARM64**: Native build on `ubuntu-22.04-arm` runners with Cortex-A78AE optimizations (ARMv8.2-A + crypto + LSE)
 
 ## Image Variants
 
-Two container images are defined:
+Four container images are built and published to GitHub Container Registry:
 
-| Image | Base | Size | Use Case |
-|-------|------|------|----------|
-| `jettison-base-ubuntu22` | Ubuntu 22.04 | ~50MB | General purpose, has shell & utilities |
-| `jettison-base-scratch` | scratch | ~10MB | Production, minimal attack surface |
-
-Each variant is built for **ARM64 only** (NVIDIA Jetson AGX Orin - Cortex-A78AE).
+| Image | Base | Size | AMD64 | ARM64 (Optimized) | Use Case |
+|-------|------|------|-------|-------------------|----------|
+| `jettison-base-ubuntu22` | Ubuntu 22.04 | ~50MB | ✓ | ✓ | General purpose, has shell & utilities |
+| `jettison-base-scratch` | scratch | ~10MB | ✓ | ✓ | Production, minimal attack surface |
 
 ## Features
 
-- **Performance First**: Static Go binaries with full ARM64 optimizations
-- **ARM64 Optimized**: Cortex-A78AE optimizations (ARMv8.2-A + crypto + LSE)
-- **Minimal Size**: Static binaries, stripped and optimized
-- **JetPack 6.2 Compatible**: Ubuntu 22.04 base matches JetPack 6.2
+- **Native Multi-Arch Builds**: No emulation - AMD64 and ARM64 built on native runners
+- **ARM64 Optimized**: Cortex-A78AE optimizations (ARMv8.2-A + crypto + LSE) for NVIDIA Jetson AGX Orin
+- **Multi-Stage Dockerfiles**: Uses `golang:latest` as builder, then creates minimal runtime images
+- **Automatic CI/CD**: Builds and pushes on every push to main
+- **Multi-Arch Manifests**: Single tag pulls correct architecture automatically
+- **JetPack 6.2 Compatible**: Ubuntu 22.04 base matches NVIDIA JetPack 6.2
 
 ## Included Tools
 
 ### wrapp
 Redis process wrapper for streaming application output to Redis:
 - Real-time stdout/stderr streaming
-- Crash detection and GDB analysis
-- Multi-line log handling
-- Health monitoring
+- Health monitoring with heartbeats
+- Crash detection and backtrace extraction
+- JSON log formatting
+- Step debugging support (gdbserver integration)
 
 ### jettison_health
 Health pool data fetcher for Jettison services:
 - Queries Redis DB 2 for health metrics
-- JSON output
-- Multiple service/category queries
+- JSON output for easy integration
+- Multiple service/category queries in one call
 
-## Usage
+## Quick Start
 
-### Pull from Local Registry (during bootstrap)
+### Pull Images
 
 ```bash
-# Ubuntu 22.04 variant
-podman pull localhost:5000/jettison/base-ubuntu22:latest
+# Ubuntu 22.04 variant (multi-arch, auto-selects AMD64 or ARM64)
+docker pull ghcr.io/lpportorino/jettison-base-ubuntu22:latest
 
-# Scratch variant
-podman pull localhost:5000/jettison/base-scratch:latest
+# Scratch variant (multi-arch)
+docker pull ghcr.io/lpportorino/jettison-base-scratch:latest
+
+# Specific architecture (if needed)
+docker pull ghcr.io/lpportorino/jettison-base-ubuntu22:latest-amd64
+docker pull ghcr.io/lpportorino/jettison-base-ubuntu22:latest-arm64
 ```
 
 ### Run Containers
 
 ```bash
 # Ubuntu 22.04 - Interactive shell
-podman run -it --rm localhost:5000/jettison/base-ubuntu22:latest
+docker run -it --rm ghcr.io/lpportorino/jettison-base-ubuntu22:latest
 
 # Ubuntu 22.04 - Run wrapp with config
-podman run -it --rm \
+docker run -it --rm \
   -v $(pwd)/config.toml:/config.toml \
-  localhost:5000/jettison/base-ubuntu22:latest \
+  ghcr.io/lpportorino/jettison-base-ubuntu22:latest \
   wrapp /config.toml
 
 # Scratch - Run wrapp directly (no shell)
-podman run --rm \
+docker run --rm \
   -v $(pwd)/config.toml:/config.toml \
-  localhost:5000/jettison/base-scratch:latest \
+  ghcr.io/lpportorino/jettison-base-scratch:latest \
   /config.toml
 
 # Check health status
-podman run --rm \
-  -e REDIS_ADDR="redis:6379" \
-  localhost:5000/jettison/base-ubuntu22:latest \
-  jettison_health myapp:api
+docker run --rm \
+  ghcr.io/lpportorino/jettison-base-ubuntu22:latest \
+  jettison_health --config /path/to/config.json myapp:api
 ```
 
-## Building (Bootstrap Stage 13)
+## CI/CD Architecture
 
-**Note:** These images are built automatically during bootstrap - manual building is not required.
+### Build Process
 
-The build process in bootstrap Stage 13 (`deployment/bootstrap/stages/13_populate_registry`):
+The GitHub Actions workflow (`.github/workflows/build.yml`) builds all images natively:
 
-### Step 1: Cross-compile Binaries
+1. **Parallel Native Builds**:
+   - **Job 1 (AMD64)**: Runs on `ubuntu-latest`, builds both ubuntu22 and scratch variants
+   - **Job 2 (ARM64)**: Runs on `ubuntu-22.04-arm`, builds both variants with `GOARM64=v8.2,crypto,lse`
 
-```bash
-./jettison_image_base/build-binaries.sh
-```
+2. **Multi-Stage Docker Builds**:
+   - **Stage 1**: Use `golang:latest` to compile static binaries with full optimizations
+   - **Stage 2**: Copy binaries to runtime image (ubuntu22 or scratch)
 
-This cross-compiles both tools for ARM64 using the latest stable Go compiler:
-- Disables CGO for pure static binaries
-- Uses ARM64 v8.2 + crypto + LSE optimizations (Cortex-A78AE)
-- Strips binaries for minimal size
-- Output: `bin/arm64/{wrapp,jettison_health}`
+3. **Manifest Creation**:
+   - Combines AMD64 and ARM64 images into multi-arch manifests
+   - Single tag (e.g., `latest`) automatically pulls correct architecture
 
-### Step 2: Build Container Images
+### Compiler Optimizations
 
-```bash
-cd jettison_image_base
-./build_base_images.sh
-```
-
-This builds both image variants using podman.
-
-### Step 3: Push to Registry
-
-Done automatically by bootstrap Stage 13's orchestrator (`02_build_custom_images.sh`).
-
-## Architecture Details
-
-### Binary Optimizations
-
-**Compiler flags:**
+**All builds**:
 - `CGO_ENABLED=0` - Pure static binaries, no libc dependency
-- `-trimpath` - Remove filesystem paths
-- `-ldflags="-s -w -extldflags=-static"` - Strip symbols and debug info, static linking
+- `-trimpath` - Remove filesystem paths for reproducibility
+- `-ldflags="-s -w -extldflags=-static"` - Strip symbols, static linking
 - `-tags=netgo` - Pure Go network stack
 - `strip` - Additional symbol stripping
 
-**ARM64 optimizations (NVIDIA Orin AGX Cortex-A78AE):**
+**ARM64 specific** (Cortex-A78AE for NVIDIA Jetson AGX Orin):
 - `GOARCH=arm64`
 - `GOARM64=v8.2,crypto,lse`
   - **v8.2**: ARMv8.2-A instruction set
-  - **crypto**: Hardware-accelerated cryptography (AES/SHA)
+  - **crypto**: Hardware AES/SHA acceleration
   - **lse**: Large System Extensions for better atomic operations
 
-### Image Variants
+### Available Tags
 
-#### Ubuntu 22.04 (`Dockerfile.ubuntu22`)
-
-**Base**: Ubuntu 22.04 LTS (matches JetPack 6.2)
-
-**Includes**:
-- `bash` - Shell
-- `jq` - JSON processor
-- `redis-tools` - Redis client
-- `gdb`, `gdbserver` - Debugging tools
-- `ca-certificates` - SSL certificates
-
-**User**: `archer` (UID 1000)
-
-**Size**: ~50MB compressed
-
-**Use when**: You need a shell, utilities, or standard Linux environment
-
-#### Scratch (`Dockerfile.scratch`)
-
-**Base**: `scratch` (empty image)
-
-**Includes**:
-- Static binaries only
-- SSL certificates (copied from Alpine)
-
-**User**: Root (no user management in scratch)
-
-**Size**: ~10MB compressed
-
-**Use when**: Production deployments requiring minimal attack surface
-
-**Note**: No shell available - `podman exec` won't work
+- `latest` - Latest build from main branch (multi-arch manifest)
+- `main-<sha>` - Specific commit SHA (multi-arch manifest)
+- `latest-amd64` / `latest-arm64` - Architecture-specific images
+- `main-<sha>-amd64` / `main-<sha>-arm64` - Architecture-specific SHA images
 
 ## Image Comparison
 
@@ -174,92 +132,64 @@ Done automatically by bootstrap Stage 13's orchestrator (`02_build_custom_images
 | **Utilities** | ✓ jq, redis-cli | ✗ None |
 | **User Management** | ✓ archer user | ✗ Root only |
 | **Interactive** | ✓ Yes | ✗ No |
-| **Debugging** | ✓ Easy (gdb) | ✗ Difficult |
+| **Debugging** | ✓ gdb/gdbserver | ✗ Difficult |
 | **Security** | Good | Excellent |
 | **Attack Surface** | Small | Minimal |
 
-## Tool Documentation
+## Development
 
-### wrapp Configuration
-
-Create a TOML configuration file:
-
-```toml
-[redis]
-host = "localhost"
-port = 6379
-password = ""
-
-[app]
-executable = "/usr/local/bin/myservice"
-args = ["--config", "/etc/myservice.conf"]
-user = "serviceuser"
-stream_name = "myservice"
-```
-
-### jettison_health Usage
-
-```bash
-# Check single service
-jettison_health myapp:api
-
-# Check multiple services
-jettison_health myapp:api myapp:worker
-
-# With custom Redis
-REDIS_ADDR="redis:6379" jettison_health myapp:api
-
-# Extract specific value with jq
-jettison_health myapp:api | jq -r '.data["myapp:api"].health'
-```
-
-## Environment Variables
-
-### Common
-
-- `REDIS_ADDR` - Redis server address (default: `localhost:6379`)
-- `REDIS_PASSWORD` - Redis password (default: empty)
-
-## Platform Support
-
-### JetPack Compatibility
-
-Built specifically for NVIDIA JetPack 6.2:
-- Ubuntu 22.04 LTS base
-- Linux Kernel 5.15 compatible
-- ARM64 optimizations for Cortex-A78AE (Orin AGX)
-
-### Target Platform
-
-- **ARM64**: NVIDIA Jetson AGX Orin 32GB (Cortex-A78AE)
-
-## Repository Structure
+### Repository Structure
 
 ```
 .
-├── Dockerfile.ubuntu22         # Ubuntu 22.04 variant
-├── Dockerfile.scratch          # Scratch variant
-├── build_base_images.sh        # Build script (called by bootstrap)
+├── .github/
+│   └── workflows/
+│       └── build.yml              # CI/CD workflow
+├── jettison_wrapp/                # wrapp source (local copy)
+├── jettison_health/               # jettison_health source (local copy)
+├── Dockerfile.ubuntu22            # Ubuntu 22.04 multi-stage build
+├── Dockerfile.scratch             # Scratch multi-stage build
+├── LICENSE.txt                    # GPL3 license
 └── README.md
 ```
 
-**Note**: Binary building happens in the parent bootstrap Stage 13 directory.
+### Making Changes
 
-## Development
+1. **Update source code**: Edit files in `jettison_wrapp/` or `jettison_health/`
+2. **Update Dockerfiles**: Modify `Dockerfile.ubuntu22` or `Dockerfile.scratch` if needed
+3. **Commit and push**: Push to main branch to trigger CI/CD
+4. **Images built automatically**: GitHub Actions builds and pushes all 4 images (2 variants × 2 architectures)
 
-### Making Changes to Dockerfiles
+### Local Testing
 
-1. Edit `Dockerfile.ubuntu22` or `Dockerfile.scratch`
-2. Test by rebuilding during bootstrap Stage 13
-3. Commit and push changes
+To test builds locally before pushing:
 
-### Dockerfile Structure
+```bash
+# Test AMD64 ubuntu22 build
+docker buildx build \
+  --platform linux/amd64 \
+  --build-arg TARGETARCH=amd64 \
+  -f Dockerfile.ubuntu22 \
+  -t jettison-base-ubuntu22:test-amd64 \
+  .
 
-Both Dockerfiles expect pre-built binaries in:
-- `bin/arm64/wrapp`
-- `bin/arm64/jettison_health`
+# Test ARM64 ubuntu22 build (with optimizations)
+docker buildx build \
+  --platform linux/arm64 \
+  --build-arg TARGETARCH=arm64 \
+  --build-arg GOARM64=v8.2,crypto,lse \
+  -f Dockerfile.ubuntu22 \
+  -t jettison-base-ubuntu22:test-arm64 \
+  .
 
-These are provided by the bootstrap build process.
+# Test scratch variants
+docker buildx build \
+  --platform linux/amd64 \
+  --build-arg TARGETARCH=amd64 \
+  -f Dockerfile.scratch \
+  -t jettison-base-scratch:test-amd64 \
+  .
+```
 
 ## Troubleshooting
 
@@ -271,7 +201,11 @@ These are provided by the bootstrap build process.
 bash: wrapp: command not found
 ```
 
-**Solution**: Tools are in `/usr/local/bin` which should be on PATH automatically.
+**Solution**: Ensure PATH is set correctly
+```bash
+export PATH=/usr/local/bin:$PATH
+wrapp --help
+```
 
 #### Can't Access Shell (Scratch variant)
 
@@ -283,38 +217,100 @@ For ubuntu22 variant, ensure you're using the archer user or override:
 
 ```bash
 # Run as root
-podman run --rm --user root localhost:5000/jettison/base-ubuntu22:latest bash
+docker run --rm --user root ghcr.io/lpportorino/jettison-base-ubuntu22:latest bash
 
 # Run with your host UID
-podman run --rm -u $(id -u):$(id -g) localhost:5000/jettison/base-ubuntu22:latest bash
+docker run --rm -u $(id -u):$(id -g) ghcr.io/lpportorino/jettison-base-ubuntu22:latest bash
 ```
+
+### Build Issues
+
+#### GitHub Actions runners
+
+- **AMD64**: Uses standard `ubuntu-latest` runners (always available)
+- **ARM64**: Uses `ubuntu-22.04-arm` runners (requires GitHub Team/Enterprise or self-hosted)
+
+If ARM64 runners are not available, you can:
+1. Use self-hosted ARM64 runners
+2. Build ARM64 locally and push manually
+3. Use QEMU emulation (slower, but works)
 
 ## Performance Metrics
 
-### Binary Sizes (ARM64)
+### Binary Sizes
 
-- `wrapp`: ~5.2MB (statically linked, stripped)
-- `jettison_health`: ~4.7MB (statically linked, stripped)
+- `wrapp` (AMD64): ~5.6MB (statically linked, stripped)
+- `wrapp` (ARM64): ~5.2MB (statically linked, stripped, optimized)
+- `jettison_health` (AMD64): ~5.1MB
+- `jettison_health` (ARM64): ~4.7MB (optimized)
 
-### Build Times (during bootstrap)
+### Build Times (GitHub Actions)
 
-- **Cross-compilation**: ~30 seconds (ARM64 only)
-- **Ubuntu22 image**: ~1-2 minutes
+- **Compilation (per arch)**: ~1-2 minutes (golang:latest, multi-stage)
+- **Ubuntu22 image**: ~2-3 minutes (includes apt install)
 - **Scratch image**: <1 minute
-- **Total build time**: ~2-3 minutes
+- **Total CI time**: ~5-7 minutes (parallel builds)
+
+## Tool Documentation
+
+### wrapp Configuration
+
+Create a TOML configuration file:
+
+```toml
+[redis]
+host = "localhost"
+port = 6379
+
+[app]
+executable = "/usr/bin/myapp"
+args = ["--config", "/etc/myapp.conf"]
+stream_name = "myapp"
+
+[debug]
+enabled = false
+```
+
+See [jettison_wrapp README](https://github.com/JAremko/jettison_wrapp) for full documentation.
+
+### jettison_health Usage
+
+```bash
+jettison_health --config /path/to/config.json myapp:api myapp:worker
+```
+
+See [jettison_health README](https://github.com/JAremko/jettison_health) for full documentation.
+
+## JetPack Compatibility
+
+Built specifically for NVIDIA JetPack 6.2:
+- Ubuntu 22.04 LTS base
+- Linux Kernel 5.15 compatible
+- ARM64 optimizations for Cortex-A78AE (Jetson AGX Orin)
+
+## Tested Platforms
+
+- **AMD64**: x86_64 systems, cloud VMs
+- **ARM64**:
+  - NVIDIA Jetson AGX Orin 32GB (primary target)
+  - AWS Graviton instances
+  - Apple Silicon (via Rosetta)
+
+## License
+
+GPL3 - See LICENSE.txt
 
 ## Related Projects
 
-- [jettison_wrapp](https://github.com/JAremko/jettison_wrapp) - Redis process wrapper
-- [jettison_health](https://github.com/JAremko/jettison_health) - Health pool data fetcher
-- [Jettison Bootstrap](../../) - Main bootstrap system
+- [jettison_wrapp](https://github.com/JAremko/jettison_wrapp) - Redis process wrapper source
+- [jettison_health](https://github.com/JAremko/jettison_health) - Health pool data fetcher source
 
 ## Support
 
 For issues or questions:
-1. Check bootstrap documentation in `deployment/bootstrap/README.md`
-2. Review this documentation
-3. Check bootstrap Stage 13 logs
+1. Check the [Issues](https://github.com/lpportorino/jettison_image_base/issues)
+2. Review tool documentation in the related projects
+3. Create a new issue with detailed information
 
 ## Credits
 

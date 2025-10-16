@@ -1,18 +1,62 @@
 # Jettison Base Image - Minimal Scratch (Performance Optimized)
-# FROM scratch - absolute minimal image with just static binaries
-# Build binaries first: ./build-binaries.sh
+# Multi-stage build: Build binaries from source, then create minimal image
 
-FROM scratch
+# ============================================================================
+# Stage 1: Build binaries
+# ============================================================================
+FROM golang:latest AS builder
 
-# Build arguments for architecture detection
+# Build arguments for optimization
 ARG TARGETARCH
+ARG GOARM64
+
+# Set working directory
+WORKDIR /build
+
+# Copy source code for both tools
+COPY jettison_wrapp/ ./jettison_wrapp/
+COPY jettison_health/ ./jettison_health/
+
+# Build wrapp
+WORKDIR /build/jettison_wrapp
+RUN CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=${TARGETARCH} \
+    GOARM64=${GOARM64} \
+    go build \
+    -trimpath \
+    -ldflags="-s -w -extldflags=-static" \
+    -tags=netgo \
+    -o /wrapp \
+    .
+
+# Build jettison_health
+WORKDIR /build/jettison_health
+RUN CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=${TARGETARCH} \
+    GOARM64=${GOARM64} \
+    go build \
+    -trimpath \
+    -ldflags="-s -w -extldflags=-static" \
+    -tags=netgo \
+    -o /jettison_health \
+    .
+
+# Strip binaries for minimal size
+RUN strip /wrapp /jettison_health
+
+# ============================================================================
+# Stage 2: Runtime image (FROM scratch)
+# ============================================================================
+FROM scratch
 
 # Copy SSL certificates (required for HTTPS connections)
 COPY --from=alpine:latest /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Copy pre-built static binaries for this architecture
-COPY bin/${TARGETARCH}/wrapp /usr/local/bin/wrapp
-COPY bin/${TARGETARCH}/jettison_health /usr/local/bin/jettison_health
+# Copy built static binaries from builder stage
+COPY --from=builder /wrapp /usr/local/bin/wrapp
+COPY --from=builder /jettison_health /usr/local/bin/jettison_health
 
 # Set PATH environment variable
 ENV PATH=/usr/local/bin

@@ -1,0 +1,244 @@
+name: Build and Push Multi-Arch Images
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/jettison-base
+
+jobs:
+  build-amd64:
+    name: Build AMD64 Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Copy source directories
+        run: |
+          cp -r jettison_wrapp jettison_wrapp_src
+          cp -r jettison_health jettison_health_src
+          mv jettison_wrapp_src jettison_wrapp
+          mv jettison_health_src jettison_health
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for ubuntu22
+        id: meta-ubuntu22
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-ubuntu22
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          flavor: |
+            suffix=-amd64
+
+      - name: Build and push Ubuntu 22.04 (AMD64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ubuntu22
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-ubuntu22.outputs.tags }}
+          labels: ${{ steps.meta-ubuntu22.outputs.labels }}
+          build-args: |
+            TARGETARCH=amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for scratch
+        id: meta-scratch
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-scratch
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          flavor: |
+            suffix=-amd64
+
+      - name: Build and push Scratch (AMD64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.scratch
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-scratch.outputs.tags }}
+          labels: ${{ steps.meta-scratch.outputs.labels }}
+          build-args: |
+            TARGETARCH=amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-arm64:
+    name: Build ARM64 Images (Cortex-A78AE Optimized)
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Copy source directories
+        run: |
+          cp -r jettison_wrapp jettison_wrapp_src
+          cp -r jettison_health jettison_health_src
+          mv jettison_wrapp_src jettison_wrapp
+          mv jettison_health_src jettison_health
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for ubuntu22
+        id: meta-ubuntu22
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-ubuntu22
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          flavor: |
+            suffix=-arm64
+
+      - name: Build and push Ubuntu 22.04 (ARM64 Optimized)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ubuntu22
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-ubuntu22.outputs.tags }}
+          labels: ${{ steps.meta-ubuntu22.outputs.labels }}
+          build-args: |
+            TARGETARCH=arm64
+            GOARM64=v8.2,crypto,lse
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for scratch
+        id: meta-scratch
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-scratch
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          flavor: |
+            suffix=-arm64
+
+      - name: Build and push Scratch (ARM64 Optimized)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.scratch
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-scratch.outputs.tags }}
+          labels: ${{ steps.meta-scratch.outputs.labels }}
+          build-args: |
+            TARGETARCH=arm64
+            GOARM64=v8.2,crypto,lse
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  create-manifests:
+    name: Create Multi-Arch Manifests
+    runs-on: ubuntu-latest
+    needs: [build-amd64, build-arm64]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push Ubuntu 22.04 manifest
+        run: |
+          # Determine tag based on branch
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TAG="latest"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+
+          # Create manifest
+          docker buildx imagetools create -t ${{ env.IMAGE_BASE }}-ubuntu22:${TAG} \
+            ${{ env.IMAGE_BASE }}-ubuntu22:${TAG}-amd64 \
+            ${{ env.IMAGE_BASE }}-ubuntu22:${TAG}-arm64
+
+          # Also create SHA-tagged manifest
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          docker buildx imagetools create -t ${{ env.IMAGE_BASE }}-ubuntu22:${{ github.ref_name }}-${SHA_SHORT} \
+            ${{ env.IMAGE_BASE }}-ubuntu22:${{ github.ref_name }}-${SHA_SHORT}-amd64 \
+            ${{ env.IMAGE_BASE }}-ubuntu22:${{ github.ref_name }}-${SHA_SHORT}-arm64
+
+      - name: Create and push Scratch manifest
+        run: |
+          # Determine tag based on branch
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TAG="latest"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+
+          # Create manifest
+          docker buildx imagetools create -t ${{ env.IMAGE_BASE }}-scratch:${TAG} \
+            ${{ env.IMAGE_BASE }}-scratch:${TAG}-amd64 \
+            ${{ env.IMAGE_BASE }}-scratch:${TAG}-arm64
+
+          # Also create SHA-tagged manifest
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          docker buildx imagetools create -t ${{ env.IMAGE_BASE }}-scratch:${{ github.ref_name }}-${SHA_SHORT} \
+            ${{ env.IMAGE_BASE }}-scratch:${{ github.ref_name }}-${SHA_SHORT}-amd64 \
+            ${{ env.IMAGE_BASE }}-scratch:${{ github.ref_name }}-${SHA_SHORT}-arm64

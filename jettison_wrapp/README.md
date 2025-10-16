@@ -268,32 +268,6 @@ See the `examples/` directory:
 - **Never enable debug mode in production** - it pauses the process until a debugger connects
 - **Use firewall rules** to restrict port 2345 access
 
-### Troubleshooting
-
-#### "Operation not permitted" errors
-
-**Cause**: Container doesn't have `SYS_PTRACE` capability
-
-**Fix**: Add `--cap-add=SYS_PTRACE` and `--security-opt seccomp=unconfined`
-
-#### Process hangs at startup
-
-**Expected behavior**: When debug mode is enabled, the process waits for a debugger to connect. Check the wrapp output for connection instructions.
-
-#### "Connection refused" when connecting GDB
-
-**Check**:
-1. Port is published: `-p 2345:2345`
-2. gdbserver is listening: Check wrapp logs
-3. Firewall allows connection
-4. Correct host address (use `localhost` if SSH tunnel)
-
-#### Can't set breakpoints
-
-**Cause**: GDB doesn't have debug symbols
-
-**Fix**: Ensure you're using the same executable binary that's running in the container, or provide symbol file path in CLion
-
 ## Usage
 
 ### Basic Usage

@@ -191,50 +191,6 @@ docker buildx build \
   .
 ```
 
-## Troubleshooting
-
-### Runtime Issues
-
-#### Tool Not Found (Ubuntu variant)
-
-```bash
-bash: wrapp: command not found
-```
-
-**Solution**: Ensure PATH is set correctly
-```bash
-export PATH=/usr/local/bin:$PATH
-wrapp --help
-```
-
-#### Can't Access Shell (Scratch variant)
-
-**This is expected behavior** - scratch images have no shell. Use ubuntu22 variant for debugging.
-
-#### Permission Denied
-
-For ubuntu22 variant, ensure you're using the archer user or override:
-
-```bash
-# Run as root
-docker run --rm --user root ghcr.io/lpportorino/jettison-base-ubuntu22:latest bash
-
-# Run with your host UID
-docker run --rm -u $(id -u):$(id -g) ghcr.io/lpportorino/jettison-base-ubuntu22:latest bash
-```
-
-### Build Issues
-
-#### GitHub Actions runners
-
-- **AMD64**: Uses standard `ubuntu-latest` runners (always available)
-- **ARM64**: Uses `ubuntu-22.04-arm` runners (requires GitHub Team/Enterprise or self-hosted)
-
-If ARM64 runners are not available, you can:
-1. Use self-hosted ARM64 runners
-2. Build ARM64 locally and push manually
-3. Use QEMU emulation (slower, but works)
-
 ## Performance Metrics
 
 ### Binary Sizes
@@ -300,18 +256,9 @@ Built specifically for NVIDIA JetPack 6.2:
 
 GPL3 - See LICENSE.txt
 
+**Note**: Container images include third-party software (Ubuntu packages, Go standard library, Alpine certificates, etc.) that retain their original licenses. The GPL3 license applies to the Jettison-specific code (`wrapp` and `jettison_health`).
+
 ## Related Projects
 
 - [jettison_wrapp](https://github.com/JAremko/jettison_wrapp) - Redis process wrapper source
 - [jettison_health](https://github.com/JAremko/jettison_health) - Health pool data fetcher source
-
-## Support
-
-For issues or questions:
-1. Check the [Issues](https://github.com/lpportorino/jettison_image_base/issues)
-2. Review tool documentation in the related projects
-3. Create a new issue with detailed information
-
-## Credits
-
-Optimized for NVIDIA Jetson AGX Orin platforms and the Jettison monitoring ecosystem.

@@ -1,0 +1,6 @@
+[submodule "jettison_wrapp"]
+	path = jettison_wrapp
+	url = https://github.com/lpportorino/jettison_wrapp.git
+[submodule "jettison_health"]
+	path = jettison_health
+	url = https://github.com/lpportorino/jettison_health.git

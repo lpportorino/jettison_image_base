@@ -25,14 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: false
-
-      - name: Copy source directories
-        run: |
-          cp -r jettison_wrapp jettison_wrapp_src
-          cp -r jettison_health jettison_health_src
-          mv jettison_wrapp_src jettison_wrapp
-          mv jettison_health_src jettison_health
+          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -110,14 +103,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: false
-
-      - name: Copy source directories
-        run: |
-          cp -r jettison_wrapp jettison_wrapp_src
-          cp -r jettison_health jettison_health_src
-          mv jettison_wrapp_src jettison_wrapp
-          mv jettison_health_src jettison_health
+          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

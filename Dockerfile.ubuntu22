@@ -2,7 +2,7 @@
 # Multi-stage build: Build Go binaries + hiredis, then create runtime image
 
 # ============================================================================
-# Stage 1: Build hiredis for ARM64 (Cortex-A78AE optimized)
+# Stage 1: Build hiredis (native compilation with platform optimizations)
 # ============================================================================
 FROM ubuntu:22.04 AS hiredis-builder
 
@@ -14,7 +14,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git \
         make \
-        gcc-aarch64-linux-gnu \
+        gcc \
         ca-certificates && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -24,13 +24,19 @@ ARG HIREDIS_VERSION=1.3.0
 RUN git clone --depth 1 --branch "v${HIREDIS_VERSION}" \
     https://github.com/redis/hiredis.git /tmp/hiredis-build
 
-# Build ARM64 version with Cortex-A78AE optimizations
+# Build with platform-specific optimizations and security hardening
+# On ARM64 runners: Uses Cortex-A78AE flags
+# On AMD64 runners: Uses native x86_64 flags
+# Security: FORTIFY_SOURCE=2, stack protector, PIE
 WORKDIR /tmp/hiredis-build
-RUN export CC=aarch64-linux-gnu-gcc && \
-    export AR=aarch64-linux-gnu-ar && \
-    export CFLAGS="-march=armv8.2-a+crypto+fp16+rcpc+dotprod+lse -mtune=cortex-a78ae -O3 -fPIC" && \
-    make -j$(nproc) PREFIX=/usr/aarch64-linux-gnu && \
-    make install PREFIX=/usr/aarch64-linux-gnu
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        export CFLAGS="-march=armv8.2-a+crypto+fp16+rcpc+dotprod+lse -mtune=cortex-a78ae -O3 -fPIC -D_FORTIFY_SOURCE=2 -fstack-protector-strong"; \
+    else \
+        export CFLAGS="-march=native -O3 -fPIC -D_FORTIFY_SOURCE=2 -fstack-protector-strong"; \
+    fi && \
+    make -j$(nproc) PREFIX=/usr/local && \
+    make install PREFIX=/usr/local
 
 # ============================================================================
 # Stage 2: Build Go binaries (wrapp + jettison_health)
@@ -111,7 +117,7 @@ COPY --from=go-builder /wrapp /usr/local/bin/wrapp
 COPY --from=go-builder /jettison_health /usr/local/bin/jettison_health
 
 # Copy hiredis library from hiredis-builder stage
-COPY --from=hiredis-builder /usr/aarch64-linux-gnu/lib/libhiredis.so* /usr/lib/aarch64-linux-gnu/
+COPY --from=hiredis-builder /usr/local/lib/libhiredis.so* /usr/local/lib/
 
 # Update library cache so system can find hiredis
 RUN ldconfig

@@ -47,8 +47,8 @@ ubuntu22 (~56 MB) - BASE IMAGE
 | Variant | Base | Size | Attack Surface | Required Capabilities | Use Cases |
 |---------|------|------|----------------|----------------------|-----------|
 | **scratch** | From scratch | ~10 MB | **Minimal** | None | Pure Go services |
-| **ubuntu22** | Ubuntu 22.04 | ~56 MB | **Small** | None | Most services (ridler, cerberus, hermes, hb_server, redis) |
-| **ubuntu22-can** | ubuntu22 | ~58 MB | **Medium** | `CAP_SYS_MODULE`, `CAP_NET_ADMIN` | CAN services (can0, lighthouse) |
+| **ubuntu22** | Ubuntu 22.04 | ~56 MB | **Small** | None | Most services (Go services, databases) |
+| **ubuntu22-can** | ubuntu22 | ~58 MB | **Medium** | `CAP_SYS_MODULE`, `CAP_NET_ADMIN` | CAN-enabled services only |
 
 ---
 
@@ -78,7 +78,7 @@ If a service is compromised:
 
 | Aspect | ubuntu22 (base) | ubuntu22-can (CAN variant) |
 |--------|----------------|---------------------------|
-| **Services** | ridler, cerberus, hermes, redis, hb_server | can0, lighthouse |
+| **Services** | Most services | CAN services only |
 | **Capabilities** | None needed | `SYS_MODULE`, `NET_ADMIN` |
 | **Kernel access** | ❌ No | ✅ Yes |
 | **Attack surface** | Small | Medium |

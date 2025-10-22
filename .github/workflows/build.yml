@@ -92,6 +92,33 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Extract metadata for ubuntu22-can
+        id: meta-ubuntu22-can
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-ubuntu22-can
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          flavor: |
+            suffix=-amd64
+
+      - name: Build and push Ubuntu 22.04 CAN (AMD64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ubuntu22-can
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-ubuntu22-can.outputs.tags }}
+          labels: ${{ steps.meta-ubuntu22-can.outputs.labels }}
+          build-args: |
+            TARGETARCH=amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   build-arm64:
     name: Build ARM64 Images (Cortex-A78AE Optimized)
     runs-on: ubuntu-22.04-arm
@@ -172,6 +199,34 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Extract metadata for ubuntu22-can
+        id: meta-ubuntu22-can
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}-ubuntu22-can
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          flavor: |
+            suffix=-arm64
+
+      - name: Build and push Ubuntu 22.04 CAN (ARM64 Optimized)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.ubuntu22-can
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-ubuntu22-can.outputs.tags }}
+          labels: ${{ steps.meta-ubuntu22-can.outputs.labels }}
+          build-args: |
+            TARGETARCH=arm64
+            GOARM64=v8.2,crypto,lse
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   create-manifests:
     name: Create Multi-Arch Manifests
     runs-on: ubuntu-latest
@@ -228,3 +283,23 @@ jobs:
           docker buildx imagetools create -t ${{ env.IMAGE_BASE }}-scratch:${{ github.ref_name }}-${SHA_SHORT} \
             ${{ env.IMAGE_BASE }}-scratch:${{ github.ref_name }}-${SHA_SHORT}-amd64 \
             ${{ env.IMAGE_BASE }}-scratch:${{ github.ref_name }}-${SHA_SHORT}-arm64
+
+      - name: Create and push Ubuntu 22.04 CAN manifest
+        run: |
+          # Determine tag based on branch
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TAG="latest"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+
+          # Create manifest
+          docker buildx imagetools create -t ${{ env.IMAGE_BASE }}-ubuntu22-can:${TAG} \
+            ${{ env.IMAGE_BASE }}-ubuntu22-can:${TAG}-amd64 \
+            ${{ env.IMAGE_BASE }}-ubuntu22-can:${TAG}-arm64
+
+          # Also create SHA-tagged manifest
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          docker buildx imagetools create -t ${{ env.IMAGE_BASE }}-ubuntu22-can:${{ github.ref_name }}-${SHA_SHORT} \
+            ${{ env.IMAGE_BASE }}-ubuntu22-can:${{ github.ref_name }}-${SHA_SHORT}-amd64 \
+            ${{ env.IMAGE_BASE }}-ubuntu22-can:${{ github.ref_name }}-${SHA_SHORT}-arm64

@@ -15,10 +15,10 @@ Three container images are built and published to GitHub Container Registry:
 | Image | Base | Size | AMD64 | ARM64 (Optimized) | Use Case |
 |-------|------|------|-------|-------------------|----------|
 | `jettison-base-ubuntu22` | Ubuntu 22.04 | ~56MB | ✓ | ✓ | General purpose Go/C services |
-| `jettison-base-ubuntu22-can` | ubuntu22 | ~58MB | ✓ | ✓ | CAN bus services (can0, lighthouse) |
+| `jettison-base-ubuntu22-can` | ubuntu22 | ~58MB | ✓ | ✓ | CAN bus services only |
 | `jettison-base-scratch` | scratch | ~10MB | ✓ | ✓ | Production, minimal attack surface |
 
-**Security Note**: The `ubuntu22-can` variant includes CAN utilities (can-utils, iproute2, kmod) which require elevated capabilities (`CAP_SYS_MODULE`, `CAP_NET_ADMIN`). Most services should use the base `ubuntu22` image for minimal attack surface. See [IMAGE_VARIANTS.md](docs/IMAGE_VARIANTS.md) for detailed security architecture.
+**Security Note**: The `ubuntu22-can` variant includes CAN utilities (can-utils, iproute2, kmod) which require elevated capabilities (`CAP_SYS_MODULE`, `CAP_NET_ADMIN`). Most services should use the base `ubuntu22` image for minimal attack surface.
 
 ## Features
 
@@ -287,7 +287,3 @@ GPL3 - See LICENSE.txt
 
 **Note**: Container images include third-party software (Ubuntu packages, Go standard library, Alpine certificates, etc.) that retain their original licenses. The GPL3 license applies to the Jettison-specific code (`wrapp` and `jettison_health`).
 
-## Additional Documentation
-
-- [IMAGE_VARIANTS.md](docs/IMAGE_VARIANTS.md) - Detailed security architecture and image variant selection guide
-- [KMOD_IN_CONTAINERS.md](../jettison_cornucopia/docs/KMOD_IN_CONTAINERS.md) - Using kernel module management from containers

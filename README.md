@@ -77,6 +77,9 @@ Health pool data fetcher for Jettison services:
 # Ubuntu 22.04 variant (multi-arch, auto-selects AMD64 or ARM64)
 docker pull ghcr.io/lpportorino/jettison-base-ubuntu22:latest
 
+# Ubuntu 22.04 CAN variant (multi-arch)
+docker pull ghcr.io/lpportorino/jettison-base-ubuntu22-can:latest
+
 # Scratch variant (multi-arch)
 docker pull ghcr.io/lpportorino/jettison-base-scratch:latest
 
@@ -116,8 +119,8 @@ docker run --rm \
 The GitHub Actions workflow (`.github/workflows/build.yml`) builds all images natively:
 
 1. **Parallel Native Builds**:
-   - **Job 1 (AMD64)**: Runs on `ubuntu-latest`, builds both ubuntu22 and scratch variants
-   - **Job 2 (ARM64)**: Runs on `ubuntu-22.04-arm`, builds both variants with `GOARM64=v8.2,crypto,lse`
+   - **Job 1 (AMD64)**: Runs on `ubuntu-latest`, builds ubuntu22, ubuntu22-can, and scratch variants
+   - **Job 2 (ARM64)**: Runs on `ubuntu-22.04-arm`, builds all three variants with `GOARM64=v8.2,crypto,lse`
 
 2. **Multi-Stage Docker Builds**:
    - **Stage 1**: Use `golang:latest` to compile static binaries with full optimizations
@@ -177,6 +180,7 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) builds all images na
 ├── jettison_wrapp/                # wrapp source (local copy)
 ├── jettison_health/               # jettison_health source (local copy)
 ├── Dockerfile.ubuntu22            # Ubuntu 22.04 multi-stage build
+├── Dockerfile.ubuntu22-can        # Ubuntu 22.04 CAN variant (extends ubuntu22)
 ├── Dockerfile.scratch             # Scratch multi-stage build
 ├── LICENSE.txt                    # GPL3 license
 └── README.md
@@ -185,9 +189,9 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) builds all images na
 ### Making Changes
 
 1. **Update source code**: Edit files in `jettison_wrapp/` or `jettison_health/`
-2. **Update Dockerfiles**: Modify `Dockerfile.ubuntu22` or `Dockerfile.scratch` if needed
+2. **Update Dockerfiles**: Modify `Dockerfile.ubuntu22`, `Dockerfile.ubuntu22-can`, or `Dockerfile.scratch` if needed
 3. **Commit and push**: Push to main branch to trigger CI/CD
-4. **Images built automatically**: GitHub Actions builds and pushes all 4 images (2 variants × 2 architectures)
+4. **Images built automatically**: GitHub Actions builds and pushes all 6 images (3 variants × 2 architectures)
 
 ### Local Testing
 
@@ -209,6 +213,15 @@ docker buildx build \
   --build-arg GOARM64=v8.2,crypto,lse \
   -f Dockerfile.ubuntu22 \
   -t jettison-base-ubuntu22:test-arm64 \
+  .
+
+# Test ubuntu22-can variant
+docker buildx build \
+  --platform linux/arm64 \
+  --build-arg TARGETARCH=arm64 \
+  --build-arg GOARM64=v8.2,crypto,lse \
+  -f Dockerfile.ubuntu22-can \
+  -t jettison-base-ubuntu22-can:test-arm64 \
   .
 
 # Test scratch variants

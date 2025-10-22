@@ -10,12 +10,15 @@ This repository provides Dockerfiles and CI/CD for building container images wit
 
 ## Image Variants
 
-Four container images are built and published to GitHub Container Registry:
+Three container images are built and published to GitHub Container Registry:
 
 | Image | Base | Size | AMD64 | ARM64 (Optimized) | Use Case |
 |-------|------|------|-------|-------------------|----------|
-| `jettison-base-ubuntu22` | Ubuntu 22.04 | ~50MB | ✓ | ✓ | General purpose, has shell & utilities |
+| `jettison-base-ubuntu22` | Ubuntu 22.04 | ~56MB | ✓ | ✓ | General purpose Go/C services |
+| `jettison-base-ubuntu22-can` | ubuntu22 | ~58MB | ✓ | ✓ | CAN bus services (can0, lighthouse) |
 | `jettison-base-scratch` | scratch | ~10MB | ✓ | ✓ | Production, minimal attack surface |
+
+**Security Note**: The `ubuntu22-can` variant includes CAN utilities (can-utils, iproute2, kmod) which require elevated capabilities (`CAP_SYS_MODULE`, `CAP_NET_ADMIN`). Most services should use the base `ubuntu22` image for minimal attack surface. See [IMAGE_VARIANTS.md](docs/IMAGE_VARIANTS.md) for detailed security architecture.
 
 ## Features
 
@@ -26,9 +29,11 @@ Four container images are built and published to GitHub Container Registry:
 - **Multi-Arch Manifests**: Single tag pulls correct architecture automatically
 - **JetPack 6.2 Compatible**: Ubuntu 22.04 base matches NVIDIA JetPack 6.2
 
-## Included Tools
+## Included Tools & Libraries
 
-### wrapp
+### Core Tools (Jettison-Specific)
+
+#### wrapp
 Redis process wrapper for streaming application output to Redis:
 - Real-time stdout/stderr streaming
 - Health monitoring with heartbeats
@@ -36,11 +41,33 @@ Redis process wrapper for streaming application output to Redis:
 - JSON log formatting
 - Step debugging support (gdbserver integration)
 
-### jettison_health
+#### jettison_health
 Health pool data fetcher for Jettison services:
 - Queries Redis DB 2 for health metrics
 - JSON output for easy integration
 - Multiple service/category queries in one call
+
+### System Tools
+
+#### Utilities
+- **redis-tools** - Redis CLI for debugging
+- **jq** - JSON processor
+- **gdb** + **gdbserver** - Debugging support
+- **bash** - Interactive shell
+
+### Runtime Libraries
+
+#### C Libraries (Optimized for ARM64)
+- **libglib2.0-0** (~4 MB) - GLib runtime
+  - Event loops, data structures, async I/O
+  - Used by lighthouse and C services
+- **libjson-glib-1.0-0** (~200 KB) - JSON parsing for C
+- **libsoup-3.0-0** (~500 KB) - HTTP client library
+- **libpq5** - PostgreSQL client library
+- **hiredis 1.3.0** (~50 KB) - Redis C client
+  - **Built from source** with Cortex-A78AE optimizations
+  - Compiler flags: `-march=armv8.2-a+crypto+fp16+rcpc+dotprod+lse -mtune=cortex-a78ae -O3`
+  - 5-10% performance improvement over stock Ubuntu packages
 
 ## Quick Start
 
@@ -125,16 +152,18 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) builds all images na
 
 ## Image Comparison
 
-| Feature | Ubuntu 22.04 | Scratch |
-|---------|-------------|---------|
-| **Size** | ~50MB | ~10MB |
-| **Shell** | ✓ bash | ✗ None |
-| **Utilities** | ✓ jq, redis-cli | ✗ None |
-| **User Management** | ✓ archer user | ✗ Root only |
-| **Interactive** | ✓ Yes | ✗ No |
-| **Debugging** | ✓ gdb/gdbserver | ✗ Difficult |
-| **Security** | Good | Excellent |
-| **Attack Surface** | Small | Minimal |
+| Feature | Ubuntu 22.04 | Ubuntu 22.04 CAN | Scratch |
+|---------|-------------|------------------|---------|
+| **Size** | ~56MB | ~58MB | ~10MB |
+| **Shell** | ✓ bash | ✓ bash | ✗ None |
+| **Utilities** | ✓ jq, redis-cli | ✓ jq, redis-cli | ✗ None |
+| **CAN Tools** | ✗ None | ✓ can-utils, ip, modprobe | ✗ None |
+| **User Management** | ✓ archer user | ✓ archer user | ✗ Root only |
+| **Interactive** | ✓ Yes | ✓ Yes | ✗ No |
+| **Debugging** | ✓ gdb/gdbserver | ✓ gdb/gdbserver | ✗ Difficult |
+| **Security** | Good | Medium | Excellent |
+| **Attack Surface** | Small | Medium (privileged caps) | Minimal |
+| **Use Case** | Most services | CAN services only | Minimal Go services |
 
 ## Development
 
@@ -258,7 +287,7 @@ GPL3 - See LICENSE.txt
 
 **Note**: Container images include third-party software (Ubuntu packages, Go standard library, Alpine certificates, etc.) that retain their original licenses. The GPL3 license applies to the Jettison-specific code (`wrapp` and `jettison_health`).
 
-## Related Projects
+## Additional Documentation
 
-- [jettison_wrapp](https://github.com/JAremko/jettison_wrapp) - Redis process wrapper source
-- [jettison_health](https://github.com/JAremko/jettison_health) - Health pool data fetcher source
+- [IMAGE_VARIANTS.md](docs/IMAGE_VARIANTS.md) - Detailed security architecture and image variant selection guide
+- [KMOD_IN_CONTAINERS.md](../jettison_cornucopia/docs/KMOD_IN_CONTAINERS.md) - Using kernel module management from containers

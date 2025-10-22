@@ -1,10 +1,41 @@
 # Jettison Base Image - Ubuntu 22.04 (JetPack 6.2 compatible)
-# Multi-stage build: Build binaries from source, then create runtime image
+# Multi-stage build: Build Go binaries + hiredis, then create runtime image
 
 # ============================================================================
-# Stage 1: Build binaries
+# Stage 1: Build hiredis for ARM64 (Cortex-A78AE optimized)
 # ============================================================================
-FROM golang:latest AS builder
+FROM ubuntu:22.04 AS hiredis-builder
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        make \
+        gcc-aarch64-linux-gnu \
+        ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Clone hiredis source
+ARG HIREDIS_VERSION=1.3.0
+RUN git clone --depth 1 --branch "v${HIREDIS_VERSION}" \
+    https://github.com/redis/hiredis.git /tmp/hiredis-build
+
+# Build ARM64 version with Cortex-A78AE optimizations
+WORKDIR /tmp/hiredis-build
+RUN export CC=aarch64-linux-gnu-gcc && \
+    export AR=aarch64-linux-gnu-ar && \
+    export CFLAGS="-march=armv8.2-a+crypto+fp16+rcpc+dotprod+lse -mtune=cortex-a78ae -O3 -fPIC" && \
+    make -j$(nproc) PREFIX=/usr/aarch64-linux-gnu && \
+    make install PREFIX=/usr/aarch64-linux-gnu
+
+# ============================================================================
+# Stage 2: Build Go binaries (wrapp + jettison_health)
+# ============================================================================
+FROM golang:latest AS go-builder
 
 # Build arguments for optimization
 ARG TARGETARCH
@@ -47,32 +78,60 @@ RUN CGO_ENABLED=0 \
 RUN strip /wrapp /jettison_health
 
 # ============================================================================
-# Stage 2: Runtime image
+# Stage 3: Runtime image
 # ============================================================================
 FROM ubuntu:22.04
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install minimal runtime dependencies only
+# Install runtime dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        # Core utilities (existing)
         ca-certificates \
         jq \
         redis-tools \
         bash \
         gdb \
-        gdbserver && \
+        gdbserver \
+        # GLib runtime (lighthouse, C services)
+        libglib2.0-0 \
+        # JSON-GLib runtime (config parsing)
+        libjson-glib-1.0-0 \
+        # libsoup HTTP client (used in services)
+        libsoup-3.0-0 \
+        # PostgreSQL client library runtime
+        libpq5 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy built binaries from builder stage
-COPY --from=builder /wrapp /usr/local/bin/wrapp
-COPY --from=builder /jettison_health /usr/local/bin/jettison_health
+# Copy Go binaries from go-builder stage
+COPY --from=go-builder /wrapp /usr/local/bin/wrapp
+COPY --from=go-builder /jettison_health /usr/local/bin/jettison_health
+
+# Copy hiredis library from hiredis-builder stage
+COPY --from=hiredis-builder /usr/aarch64-linux-gnu/lib/libhiredis.so* /usr/lib/aarch64-linux-gnu/
+
+# Update library cache so system can find hiredis
+RUN ldconfig
 
 # Create archer user and group
 RUN groupadd -g 1000 archer && \
     useradd -u 1000 -g archer -m -s /bin/bash archer
+
+# Verify all tools are present (fail fast if something is missing)
+RUN which wrapp && \
+    which jettison_health && \
+    which redis-cli && \
+    which jq && \
+    which gdb && \
+    which gdbserver && \
+    ldconfig -p | grep -q libhiredis && \
+    ldconfig -p | grep -q libglib-2.0 && \
+    ldconfig -p | grep -q libjson-glib && \
+    ldconfig -p | grep -q libsoup && \
+    echo "✓ All tools and libraries verified"
 
 # Switch to archer user
 USER archer

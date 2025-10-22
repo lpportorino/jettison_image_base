@@ -1,0 +1,32 @@
+# Jettison CAN Variant - Ubuntu 22.04 with CAN bus support
+# Extends base ubuntu22 image with CAN utilities and kernel tools
+# USE ONLY for services requiring CAN bus access (can0, lighthouse)
+
+FROM ghcr.io/lpportorino/jettison-base-ubuntu22:latest
+
+# Switch to root to install packages
+USER root
+
+# Install CAN and kernel tools (privileged operations required)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        # CAN bus utilities
+        can-utils \
+        # Network configuration (for CAN interface setup)
+        iproute2 \
+        # Kernel module management (for loading CAN drivers)
+        kmod && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Verify CAN tools are present
+RUN which candump && \
+    which ip && \
+    which modprobe && \
+    echo "✓ CAN tools verified"
+
+# Switch back to archer user
+USER archer
+WORKDIR /home/archer
+
+CMD ["/bin/bash"]
